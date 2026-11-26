@@ -108,8 +108,8 @@ def disable_system_audio(config_dir: Path | None = None) -> None:
     kept = [line for line in text.splitlines()
             if line.strip().casefold() != INCLUDE_LINE.casefold()]
     if len(kept) != len(text.splitlines()):
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", newline="\\n",
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", newline="\n",
                                          dir=folder, delete=False) as handle:
-            handle.write("\\n".join(kept).rstrip() + "\\n")
+            handle.write("\n".join(kept).rstrip() + "\n")
             temp_name = handle.name
         os.replace(temp_name, main_config)
