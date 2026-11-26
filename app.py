@@ -12,7 +12,7 @@ import soundfile as sf
 from scipy.signal import resample_poly
 
 from audio_engine import BANDS, DEFAULTS, PRESETS, AudioProcessor
-from equalizer_apo import apply_system_audio, find_config_dir
+from equalizer_apo import apply_system_audio, disable_system_audio, find_config_dir
 
 try:
     import sounddevice as sd
@@ -358,6 +358,11 @@ class KozikaAudioStudio:
 
     def _toggle_system_audio(self) -> None:
         if self.system_audio_enabled:
+            try:
+                disable_system_audio()
+            except (OSError, PermissionError) as error:
+                messagebox.showerror("Nem sikerült kikapcsolni", str(error))
+                return
             self.system_audio_enabled = False
             self.system_audio_button.configure(text="Windows teljes hangja: kikapcsolva")
             self.status.set("A Kozika rendszerhang-feldolgozása kikapcsolva. A fájllejátszó tovább működik.")
