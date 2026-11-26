@@ -12,6 +12,7 @@ import soundfile as sf
 from scipy.signal import resample_poly
 
 from audio_engine import BANDS, DEFAULTS, PRESETS, AudioProcessor
+from equalizer_apo import apply_system_audio, disable_system_audio, find_config_dir
 
 try:
     import sounddevice as sd
@@ -45,6 +46,7 @@ class KozikaAudioStudio:
         self.processor: AudioProcessor | None = None
         self.stream: sd.OutputStream | None = None
         self.playing = False
+        self.system_audio_enabled = False
         self.track_title = tk.StringVar(value="Nincs betöltött hangfájl")
         self.status = tk.StringVar(value="Válasszon hangkimenetet, majd töltsön be egy zenét vagy filmet.")
         self.preset = tk.StringVar(value="Egyéni")
@@ -123,6 +125,12 @@ class KozikaAudioStudio:
                                          values=("Egyéni", *PRESETS.keys()), state="readonly")
         self.preset_combo.pack(fill="x")
         self.preset_combo.bind("<<ComboboxSelected>>", self._select_preset)
+        system_box = ttk.Frame(outer)
+        system_box.pack(fill="x", pady=(0, 14))
+        self.system_audio_button = ttk.Button(
+            system_box, text="Windows teljes hangja: kikapcsolva",
+            command=self._toggle_system_audio)
+        self.system_audio_button.pack(anchor="w")
 
         eq_header = ttk.Frame(outer)
         eq_header.pack(fill="x", pady=(0, 8))
@@ -332,9 +340,48 @@ class KozikaAudioStudio:
             self.preset.set("Egyéni")
         self._apply_settings()
 
+    def _current_settings(self) -> dict[str, float]:
+        return {key: variable.get() for key, variable in self.setting_vars.items()}
+
     def _apply_settings(self) -> None:
+        settings = self._current_settings()
         if self.processor:
-            self.processor.set_settings({key: variable.get() for key, variable in self.setting_vars.items()})
+            self.processor.set_settings(settings)
+        if self.system_audio_enabled:
+            try:
+                apply_system_audio(settings)
+                self.status.set("A Kozika hangbeállításai a Windows rendszerhangjára is érvényesek.")
+            except (OSError, PermissionError, FileNotFoundError) as error:
+                self.system_audio_enabled = False
+                self.system_audio_button.configure(text="Windows teljes hangja: kikapcsolva")
+                self.status.set(f"A rendszerhang beállítása nem sikerült: {error}")
+
+    def _toggle_system_audio(self) -> None:
+        if self.system_audio_enabled:
+            try:
+                disable_system_audio()
+            except (OSError, PermissionError) as error:
+                messagebox.showerror("Nem sikerült kikapcsolni", str(error))
+                return
+            self.system_audio_enabled = False
+            self.system_audio_button.configure(text="Windows teljes hangja: kikapcsolva")
+            self.status.set("A Kozika rendszerhang-feldolgozása kikapcsolva. A fájllejátszó tovább működik.")
+            return
+        if find_config_dir() is None:
+            messagebox.showinfo(
+                "Equalizer APO szükséges",
+                "A Netflix és a Windows teljes hangjának feldolgozásához előbb telepíteni kell az Equalizer APO programot. "
+                "Telepítéskor a Configurator ablakban jelöld be a Realtek hangszórót és a külső hangszóró kimenetét, "
+                "majd indítsd újra a notebookot. Ezután kapcsold be itt a rendszerhangot."
+            )
+            return
+        try:
+            apply_system_audio(self._current_settings())
+            self.system_audio_enabled = True
+            self.system_audio_button.configure(text="Windows teljes hangja: bekapcsolva")
+            self.status.set("A Windows rendszerhang-feldolgozás aktív. A változtatások mentéskor frissülnek.")
+        except (OSError, PermissionError, FileNotFoundError) as error:
+            messagebox.showerror("Nem sikerült bekapcsolni", str(error))
 
     def _select_preset(self, _event=None) -> None:
         values = PRESETS.get(self.preset.get())
