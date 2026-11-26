@@ -50,5 +50,5 @@ engedélyezve kell maradniuk az adott eszköz tulajdonságainál.
 ## Ellenőrzés
 
 ```powershell
-python -m unittest -v test_audio_engine
+python -m unittest -v test_audio_engine test_equalizer_apo
 ```
