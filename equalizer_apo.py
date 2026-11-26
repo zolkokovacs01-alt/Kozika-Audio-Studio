@@ -94,3 +94,22 @@ def apply_system_audio(settings: Mapping[str, float], config_dir: Path | None = 
         temp_name = handle.name
     os.replace(temp_name, generated)
     return generated
+
+
+def disable_system_audio(config_dir: Path | None = None) -> None:
+    """Remove only Kozika's Include directive, leaving the user's APO config intact."""
+    folder = config_dir or find_config_dir()
+    if folder is None:
+        return
+    main_config = folder / "config.txt"
+    if not main_config.is_file():
+        return
+    text = main_config.read_text(encoding="utf-8-sig")
+    kept = [line for line in text.splitlines()
+            if line.strip().casefold() != INCLUDE_LINE.casefold()]
+    if len(kept) != len(text.splitlines()):
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", newline="\\n",
+                                         dir=folder, delete=False) as handle:
+            handle.write("\\n".join(kept).rstrip() + "\\n")
+            temp_name = handle.name
+        os.replace(temp_name, main_config)
