@@ -127,10 +127,16 @@ if ($LASTEXITCODE -ne 0) {{ throw 'Could not grant Modify permission to the Kozi
     script_path.write_text(script, encoding="utf-8")
     parameters = f'-NoProfile -ExecutionPolicy Bypass -File "{script_path}"'
     try:
-        result = ctypes.windll.shell32.ShellExecuteW(
+        shell32 = ctypes.windll.shell32
+        shell32.ShellExecuteW.argtypes = [
+            ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p,
+            ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_int,
+        ]
+        shell32.ShellExecuteW.restype = ctypes.c_void_p
+        result = shell32.ShellExecuteW(
             None, "runas", "powershell.exe", parameters, None, 1
         )
-        return int(result) > 32
+        return result is not None and int(result) > 32
     except (AttributeError, OSError, TypeError, ValueError):
         return False
 
