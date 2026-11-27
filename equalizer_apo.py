@@ -47,7 +47,7 @@ def build_apo_config(settings: Mapping[str, float]) -> str:
     )
     # Avoid attenuating the whole signal into near-silence when several EQ
     # bands are raised. The limiter remains the final peak-safety stage.
-    preamp = volume_db - min(requested_boost, 18.0)
+    preamp = min(0.0, volume_db - min(requested_boost, 18.0))
 
     lines = [
         "# Kozika Audio Studio - generated settings",
