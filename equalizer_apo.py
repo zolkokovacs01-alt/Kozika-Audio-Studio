@@ -1,8 +1,9 @@
 """Windows system-audio integration through Equalizer APO.
 
-The generated live filter file is stored in the user's LocalAppData folder.
-Only the one-time Include entry in Equalizer APO's protected config.txt needs
-administrator approval; ordinary slider changes never write to Program Files.
+The live filter file stays inside Equalizer APO's config directory so APO can
+watch and reload it immediately. A one-time UAC helper grants the current
+Windows user Modify rights to this single Kozika-owned file; slider changes
+then never need administrator rights or rewrite config.txt.
 """
 from __future__ import annotations
 
@@ -20,17 +21,8 @@ APO_DIRS = (
     Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "EqualizerAPO" / "config",
 )
 APO_FILENAME = "KozikaAudioStudio.txt"
-
-
-def user_config_dir() -> Path:
-    local = os.environ.get("LOCALAPPDATA")
-    root = Path(local) if local else Path.home() / "AppData" / "Local"
-    return root / "KozikaAudioStudio" / "EqualizerAPO"
-
-
-def include_line(user_dir: Path | None = None) -> str:
-    target = (user_dir or user_config_dir()) / APO_FILENAME
-    return f'Include: "{target.resolve()}"'
+INCLUDE_LINE = f"Include: {APO_FILENAME}"
+DISABLED_CONFIG = "# Kozika Audio Studio - processing disabled\nPreamp: 0 dB\n"
 
 
 def find_config_dir() -> Path | None:
@@ -49,7 +41,6 @@ def build_apo_config(settings: Mapping[str, float]) -> str:
     treble = float(settings.get("treble", 0.0)) * 0.12
     volume = min(150.0, max(0.0, float(settings.get("volume", 100.0))))
     volume_db = 20.0 * math.log10(max(volume, 0.1) / 100.0)
-
     requested_boost = (
         sum(max(0.0, gain) for gain in eq)
         + max(0.0, bass) + max(0.0, clarity) + max(0.0, treble)
@@ -80,7 +71,7 @@ def build_apo_config(settings: Mapping[str, float]) -> str:
 
 
 def _atomic_write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    """Atomic write for config.txt (used only during one-time installation)."""
     temp_name = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -94,23 +85,21 @@ def _atomic_write(path: Path, text: str) -> None:
             os.unlink(temp_name)
 
 
-def request_admin_install(config_dir: Path | None = None,
-                          user_dir: Path | None = None) -> bool:
-    """Ask Windows for one-time elevation to add the APO Include directive."""
+def request_admin_install(config_dir: Path | None = None) -> bool:
+    """Ask for one-time elevation to install Include and grant file-only access."""
     folder = config_dir or find_config_dir()
     if folder is None or os.name != "nt":
         return False
     main_config = folder / "config.txt"
-    target_dir = user_dir or user_config_dir()
-    target_dir.mkdir(parents=True, exist_ok=True)
-    wanted = include_line(target_dir)
+    generated = folder / APO_FILENAME
 
     def ps_quote(value: str) -> str:
         return "'" + value.replace("'", "''") + "'"
 
     script = f"""$ErrorActionPreference = 'Stop'
 $configPath = {ps_quote(str(main_config))}
-$includeLine = {ps_quote(wanted)}
+$generatedPath = {ps_quote(str(generated))}
+$includeLine = {ps_quote(INCLUDE_LINE)}
 $backupPath = $configPath + '.kozika-backup'
 if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {{ throw 'Equalizer APO config.txt not found.' }}
 $raw = [System.IO.File]::ReadAllText($configPath)
@@ -125,9 +114,17 @@ foreach ($line in $lines) {{
 if (-not (Test-Path -LiteralPath $backupPath)) {{ Copy-Item -LiteralPath $configPath -Destination $backupPath }}
 $body = ($kept -join [Environment]::NewLine).TrimEnd() + [Environment]::NewLine
 [System.IO.File]::WriteAllText($configPath, $body, [System.Text.UTF8Encoding]::new($false))
+if (-not (Test-Path -LiteralPath $generatedPath)) {{
+    [System.IO.File]::WriteAllText($generatedPath, {ps_quote(DISABLED_CONFIG)}, [System.Text.UTF8Encoding]::new($false))
+}}
+$account = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+& icacls.exe $generatedPath /grant ($account + ':(M)') | Out-Null
+if ($LASTEXITCODE -ne 0) {{ throw 'Could not grant Modify permission to the Kozika filter file.' }}
 """
-    script_path = target_dir / "install_equalizer_apo_include.ps1"
-    _atomic_write(script_path, script)
+    script_dir = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "KozikaAudioStudio"
+    script_dir.mkdir(parents=True, exist_ok=True)
+    script_path = script_dir / "install_equalizer_apo_include.ps1"
+    script_path.write_text(script, encoding="utf-8")
     parameters = f'-NoProfile -ExecutionPolicy Bypass -File "{script_path}"'
     try:
         result = ctypes.windll.shell32.ShellExecuteW(
@@ -139,9 +136,8 @@ $body = ($kept -join [Environment]::NewLine).TrimEnd() + [Environment]::NewLine
 
 
 def apply_system_audio(settings: Mapping[str, float],
-                       config_dir: Path | None = None,
-                       user_dir: Path | None = None) -> Path:
-    """Write live filters to LocalAppData and ensure config.txt includes them."""
+                       config_dir: Path | None = None) -> Path:
+    """Update the single user-writable filter file; install Include once."""
     folder = config_dir or find_config_dir()
     if folder is None:
         raise FileNotFoundError(
@@ -152,22 +148,23 @@ def apply_system_audio(settings: Mapping[str, float],
     if not main_config.is_file():
         raise FileNotFoundError(f"Nem található: {main_config}")
 
-    target_dir = user_dir or user_config_dir()
-    generated = target_dir / APO_FILENAME
-    _atomic_write(generated, build_apo_config(settings))
+    generated = folder / APO_FILENAME
+    # The file receives a one-time Modify ACL during setup. Write to the
+    # existing file in place: replacing it atomically would require directory
+    # permissions that Program Files intentionally does not grant.
+    generated.write_bytes(build_apo_config(settings).encode("utf-8"))
 
-    wanted = include_line(target_dir)
     main_text = main_config.read_text(encoding="utf-8-sig")
-    if wanted.casefold() not in main_text.casefold():
-        # Replace the previous version's relative Include rather than loading
-        # two different Kozika filter files at the same time.
+    if INCLUDE_LINE.casefold() not in main_text.casefold():
+        # This is a one-time protected-file change. The app catches
+        # PermissionError and offers the UAC setup helper.
         lines = [
             line for line in main_text.splitlines()
             if not re.match(r'^\s*Include:\s*"?KozikaAudioStudio\.txt"?\s*$',
                             line, flags=re.IGNORECASE)
-            and line.strip().casefold() != wanted.casefold()
+            and line.strip().casefold() != INCLUDE_LINE.casefold()
         ]
-        lines.append(wanted)
+        lines.append(INCLUDE_LINE)
         backup = folder / "config.txt.kozika-backup"
         if not backup.exists():
             shutil.copy2(main_config, backup)
@@ -175,10 +172,10 @@ def apply_system_audio(settings: Mapping[str, float],
     return generated
 
 
-def disable_system_audio(config_dir: Path | None = None,
-                         user_dir: Path | None = None) -> None:
+def disable_system_audio(config_dir: Path | None = None) -> None:
     """Disable only Kozika filters without editing protected config.txt."""
-    target = (user_dir or user_config_dir()) / APO_FILENAME
-    # Keep the one-time Include installed, but make its file neutral. Turning
-    # Kozika off therefore never needs administrator rights.
-    _atomic_write(target, "# Kozika Audio Studio - processing disabled\nPreamp: 0 dB\n")
+    folder = config_dir or find_config_dir()
+    if folder is None:
+        return
+    generated = folder / APO_FILENAME
+    generated.write_bytes(DISABLED_CONFIG.encode("utf-8"))
