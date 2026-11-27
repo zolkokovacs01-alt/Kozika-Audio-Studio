@@ -61,3 +61,10 @@ engedélyezve kell maradniuk az adott eszköz tulajdonságainál.
 ```powershell
 python -m unittest -v test_audio_engine test_equalizer_apo
 ```
+
+
+## Letölthető Windows-verzió
+
+A GitHub Actions automatikusan elkészíti a Windows-programot a `Kozika-Audio-Studio-Windows` nevű csomagban. A csomag a sikeres **Windows build** futás végén, az Actions oldal **Artifacts** részén tölthető le. A letöltött ZIP-et ki kell csomagolni, majd a `Kozika Audio Studio.exe` fájlt lehet elindítani.
+
+A csomagolt program futtatásához nem kell külön Python-telepítés. A Windows rendszerhang (például böngésző és Netflix hangja) továbbra is az Equalizer APO külön telepítését és a használt hangkimenetek engedélyezését igényli; a beépített fájllejátszó önmagában is használható.
