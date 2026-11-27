@@ -79,17 +79,49 @@ class AudioProcessor:
         self.sample_rate = sample_rate
         self._settings = DEFAULTS.copy()
         self._lock = threading.Lock()
+        self._sos = self._build_sos(self._settings)
         self._filter_state = np.zeros((13, 2, 2), dtype=np.float64)
         self._delay_samples = max(1, int(sample_rate * 0.012))
         self._delay_state = np.zeros((2, self._delay_samples), dtype=np.float64)
         self._delay_filter = np.zeros(self._delay_samples + 1)
         self._delay_filter[-1] = 1.0
 
+    def _build_sos(self, settings: dict[str, float]) -> np.ndarray:
+        gains = [settings[f"eq_{frequency}"] for frequency in BANDS]
+        sections = [
+            _peaking_eq(frequency, gain, self.sample_rate, 1.0)
+            for frequency, gain in zip(BANDS, gains)
+        ]
+        sections.extend((
+            _shelf(100, settings["bass"] * 0.12, self.sample_rate),
+            _peaking_eq(3500, settings["clarity"] * 0.08, self.sample_rate, 0.8),
+            _shelf(7000, settings["treble"] * 0.12, self.sample_rate, high=True),
+        ))
+        return np.asarray(sections, dtype=np.float64)
+
     def set_settings(self, values: dict[str, float]) -> None:
+        # Build coefficients outside the audio callback.  The callback only
+        # swaps an already prepared immutable array, so moving a slider never
+        # makes the real-time audio thread calculate filter coefficients.
         with self._lock:
-            for name, value in values.items():
-                if name in self._settings:
-                    self._settings[name] = float(value)
+            updated = self._settings.copy()
+        for name, value in values.items():
+            if name not in updated:
+                continue
+            number = float(value)
+            if not np.isfinite(number):
+                continue
+            if name.startswith("eq_"):
+                number = min(12.0, max(-12.0, number))
+            elif name == "volume":
+                number = min(150.0, max(0.0, number))
+            else:
+                number = min(100.0, max(0.0, number))
+            updated[name] = number
+        coefficients = self._build_sos(updated)
+        with self._lock:
+            self._settings = updated
+            self._sos = coefficients
 
     def process(self, samples: np.ndarray) -> np.ndarray:
         if samples.ndim != 2 or samples.shape[1] != 2:
@@ -99,16 +131,10 @@ class AudioProcessor:
 
         with self._lock:
             settings = self._settings.copy()
+            sos = self._sos
 
-        gains = [settings[f"eq_{frequency}"] for frequency in BANDS]
-        sos = [_peaking_eq(frequency, gain, self.sample_rate, 1.0) for frequency, gain in zip(BANDS, gains)]
-        sos.extend((
-            _shelf(100, settings["bass"] * 0.12, self.sample_rate),
-            _peaking_eq(3500, settings["clarity"] * 0.08, self.sample_rate, 0.8),
-            _shelf(7000, settings["treble"] * 0.12, self.sample_rate, high=True),
-        ))
         output, self._filter_state = sosfilt(
-            np.asarray(sos), samples.astype(np.float64, copy=False), axis=0, zi=self._filter_state
+            sos, samples.astype(np.float64, copy=False), axis=0, zi=self._filter_state
         )
 
         spatial = settings["spatial"] / 100.0
@@ -126,6 +152,7 @@ class AudioProcessor:
             output = np.column_stack((mid + widened_side, mid - widened_side)) + reflection
 
         output *= settings["volume"] / 100.0
+        output = np.nan_to_num(output, copy=False, nan=0.0, posinf=1.0, neginf=-1.0)
         magnitude = np.abs(output)
         over_limit = magnitude > 0.95
         output[over_limit] = np.sign(output[over_limit]) * (

@@ -12,7 +12,7 @@ import soundfile as sf
 from scipy.signal import resample_poly
 
 from audio_engine import BANDS, DEFAULTS, PRESETS, AudioProcessor
-from equalizer_apo import apply_system_audio, disable_system_audio, find_config_dir
+from equalizer_apo import apply_system_audio, disable_system_audio, find_config_dir, request_admin_install
 
 try:
     import sounddevice as sd
@@ -57,6 +57,8 @@ class KozikaAudioStudio:
         self.eq_labels: dict[str, ttk.Label] = {}
         self._loading_preset = False
         self._end_of_track = threading.Event()
+        self._callback_failed = threading.Event()
+        self._callback_error = ""
 
         self._style()
         self._build()
@@ -283,34 +285,59 @@ class KozikaAudioStudio:
             self.processor = AudioProcessor(rate)
             self._apply_settings()
             self._end_of_track.clear()
+            self._callback_failed.clear()
+            self._callback_error = ""
+            # Let PortAudio choose its optimal callback block size on Windows.
             self.stream = sd.OutputStream(device=device_index, samplerate=rate, channels=2,
-                                          dtype="float32", blocksize=1024, callback=self._audio_callback)
+                                          dtype="float32", blocksize=0, callback=self._audio_callback)
             self.stream.start()
             self.playing = True
             self.play_button.configure(text="Ⅱ  Szünet")
             self.status.set("Lejátszás és valós idejű hangfeldolgozás aktív.")
         except Exception as error:
             self.playing = False
+            if self.stream is not None:
+                try:
+                    self.stream.close(ignore_errors=True)
+                except Exception:
+                    pass
             self.stream = None
             messagebox.showerror("Nem sikerült elindítani", f"Ellenőrizze a hangkimenetet és annak beállításait.\n\n{error}")
 
     def _audio_callback(self, output: np.ndarray, frames: int, _time, _status) -> None:
-        audio = self._playback_samples
-        end = min(self.play_cursor + frames, len(audio))
-        count = end - self.play_cursor
-        output.fill(0)
-        if count:
-            output[:count] = self.processor.process(audio[self.play_cursor:end])
-            self.play_cursor = end
-        if count < frames:
-            self._end_of_track.set()
-            raise sd.CallbackStop
+        try:
+            audio = self._playback_samples
+            if self.processor is None:
+                raise RuntimeError("A hangfeldolgozó nem indult el.")
+            end = min(self.play_cursor + frames, len(audio))
+            count = end - self.play_cursor
+            output.fill(0)
+            if count:
+                output[:count] = self.processor.process(audio[self.play_cursor:end])
+                self.play_cursor = end
+            if count < frames:
+                self._end_of_track.set()
+                raise sd.CallbackStop
+        except sd.CallbackStop:
+            raise
+        except Exception as error:
+            # PortAudio does not propagate callback exceptions to Tk.
+            self._callback_error = f"{type(error).__name__}: {error}"
+            self._callback_failed.set()
+            output.fill(0)
+            raise sd.CallbackAbort
 
     def _pause(self) -> None:
         if self.stream:
-            self.stream.stop()
-            self.stream.close()
-            self.stream = None
+            stream, self.stream = self.stream, None
+            try:
+                stream.stop(ignore_errors=True)
+            except Exception:
+                pass
+            try:
+                stream.close(ignore_errors=True)
+            except Exception:
+                pass
         self.playing = False
         self.play_button.configure(text="▶  Folytatás")
         self.status.set("Lejátszás szüneteltetve. A hangbeállítások módosíthatók.")
@@ -325,7 +352,13 @@ class KozikaAudioStudio:
     def _watch_playback(self) -> None:
         if self.samples is not None and self.playing:
             self.progress.configure(value=100 * self.play_cursor / max(1, len(self._playback_samples)))
-        if self._end_of_track.is_set():
+        if self._callback_failed.is_set():
+            detail = self._callback_error or "Ismeretlen hangfeldolgozási hiba."
+            self._callback_failed.clear()
+            self._stop()
+            self.status.set(f"A hangfeldolgozás leállt: {detail}")
+            messagebox.showerror("Hangfeldolgozási hiba", detail)
+        elif self._end_of_track.is_set():
             self._stop()
             self.status.set("A lejátszás véget ért.")
         self.root.after(120, self._watch_playback)
@@ -351,9 +384,14 @@ class KozikaAudioStudio:
             try:
                 apply_system_audio(settings)
                 self.status.set("A Kozika hangbeállításai a Windows rendszerhangjára is érvényesek.")
-            except (OSError, PermissionError, FileNotFoundError) as error:
+            except PermissionError as error:
                 self.system_audio_enabled = False
                 self.system_audio_button.configure(text="Windows teljes hangja: kikapcsolva")
+                if request_admin_install():
+                    self.status.set("Egyszeri Windows-engedélyt kértem. Jóváhagyás után kapcsold be újra a Windows teljes hangját.")
+                else:
+                    self.status.set(f"A rendszerhang hozzáférési hibája: {error}")
+            except OSError as error:
                 self.status.set(f"A rendszerhang beállítása nem sikerült: {error}")
 
     def _toggle_system_audio(self) -> None:
@@ -379,8 +417,18 @@ class KozikaAudioStudio:
             apply_system_audio(self._current_settings())
             self.system_audio_enabled = True
             self.system_audio_button.configure(text="Windows teljes hangja: bekapcsolva")
-            self.status.set("A Windows rendszerhang-feldolgozás aktív. A változtatások mentéskor frissülnek.")
-        except (OSError, PermissionError, FileNotFoundError) as error:
+            self.status.set("A Windows rendszerhang-feldolgozás aktív. A változtatások azonnal frissülnek.")
+        except PermissionError as error:
+            if request_admin_install():
+                messagebox.showinfo(
+                    "Egyszeri Windows-engedély szükséges",
+                    "A Windows rendszergazdai engedélyt fog kérni. Kattints az Igen gombra. "
+                    "Ha a beállítás elkészült, kattints újra a Windows teljes hangja gombra. "
+                    "Ezután a hangcsúszkák már nem kérnek rendszergazdai engedélyt."
+                )
+            else:
+                messagebox.showerror("Hozzáférés megtagadva", str(error))
+        except OSError as error:
             messagebox.showerror("Nem sikerült bekapcsolni", str(error))
 
     def _select_preset(self, _event=None) -> None:
@@ -400,9 +448,7 @@ class KozikaAudioStudio:
         self.status.set(f"A(z) „{self.preset.get()}” hangprofil aktív.")
 
     def close(self) -> None:
-        if self.stream:
-            self.stream.stop()
-            self.stream.close()
+        self._stop()
         self.root.destroy()
 
 
