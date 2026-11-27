@@ -391,6 +391,13 @@ class KozikaAudioStudio:
                     self.status.set("Egyszeri Windows-engedélyt kértem. Jóváhagyás után kapcsold be újra a Windows teljes hangját.")
                 else:
                     self.status.set(f"A rendszerhang hozzáférési hibája: {error}")
+            except PermissionError as error:
+                self.system_audio_enabled = False
+                self.system_audio_button.configure(text="Windows teljes hangja: kikapcsolva")
+                if request_admin_install():
+                    self.status.set("Egyszeri Windows-engedélyt kértem. Jóváhagyás után kapcsold be újra a Windows teljes hangját.")
+                else:
+                    self.status.set(f"A rendszerhang hozzáférési hibája: {error}")
             except OSError as error:
                 self.status.set(f"A rendszerhang beállítása nem sikerült: {error}")
 
