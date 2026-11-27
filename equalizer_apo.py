@@ -177,10 +177,26 @@ def apply_system_audio(
         # before creating the live filter so a failed permission check is clear.
         lines = [
             line for line in main_text.splitlines()
-            if not re.match(r'^\s*Include:\s*"?KozikaAudioStudio\.txt"?\s*$',
+            if not re.match(r'^\s*Include:\s*"?KozikaAudioStudio\.txt"?\s*        ]
+        if include_line.casefold() not in [line.strip().casefold() for line in lines]:
+            lines.append(include_line)
+        backup = folder / "config.txt.kozika-backup"
+        if not backup.exists():
+            shutil.copy2(main_config, backup)
+        _atomic_write(main_config, "\n".join(lines).rstrip() + "\n")
+
+    _atomic_write(generated, build_apo_config(settings))
+    return generated
+
+
+def disable_system_audio(config_dir: Path | None = None) -> None:
+    """Disable only Kozika filters without editing protected config.txt."""
+    generated = _user_filter_dir(config_dir) / APO_FILENAME
+    if generated.exists():
+        _atomic_write(generated, DISABLED_CONFIG)
+,
                             line, flags=re.IGNORECASE)
-            and not line.strip().casefold().startswith("include:")
-            or line.strip().casefold() == include_line.casefold()
+            and line.strip().casefold() != include_line.casefold()
         ]
         if include_line.casefold() not in [line.strip().casefold() for line in lines]:
             lines.append(include_line)
