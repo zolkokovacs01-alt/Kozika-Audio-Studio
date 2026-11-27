@@ -296,6 +296,11 @@ class KozikaAudioStudio:
             self.status.set("Lejátszás és valós idejű hangfeldolgozás aktív.")
         except Exception as error:
             self.playing = False
+            if self.stream is not None:
+                try:
+                    self.stream.close(ignore_errors=True)
+                except Exception:
+                    pass
             self.stream = None
             messagebox.showerror("Nem sikerült elindítani", f"Ellenőrizze a hangkimenetet és annak beállításait.\n\n{error}")
 
@@ -379,6 +384,13 @@ class KozikaAudioStudio:
             try:
                 apply_system_audio(settings)
                 self.status.set("A Kozika hangbeállításai a Windows rendszerhangjára is érvényesek.")
+            except PermissionError as error:
+                self.system_audio_enabled = False
+                self.system_audio_button.configure(text="Windows teljes hangja: kikapcsolva")
+                if request_admin_install():
+                    self.status.set("Egyszeri Windows-engedélyt kértem. Jóváhagyás után kapcsold be újra a Windows teljes hangját.")
+                else:
+                    self.status.set(f"A rendszerhang hozzáférési hibája: {error}")
             except OSError as error:
                 self.status.set(f"A rendszerhang beállítása nem sikerült: {error}")
 
