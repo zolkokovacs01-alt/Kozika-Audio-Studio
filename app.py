@@ -59,6 +59,7 @@ class KozikaAudioStudio:
         self._end_of_track = threading.Event()
         self._callback_failed = threading.Event()
         self._callback_error = ""
+        self._underflow_count = 0
 
         self._style()
         self._build()
@@ -287,9 +288,18 @@ class KozikaAudioStudio:
             self._end_of_track.clear()
             self._callback_failed.clear()
             self._callback_error = ""
-            # Let PortAudio choose its optimal callback block size on Windows.
-            self.stream = sd.OutputStream(device=device_index, samplerate=rate, channels=2,
-                                          dtype="float32", blocksize=0, callback=self._audio_callback)
+            # Use a larger Windows output buffer to avoid callback under-runs
+            # when the CPU, device driver, or UI is briefly busy.
+            self._underflow_count = 0
+            self.stream = sd.OutputStream(
+                device=device_index,
+                samplerate=rate,
+                channels=2,
+                dtype="float32",
+                blocksize=1024,
+                latency="high",
+                callback=self._audio_callback,
+            )
             self.stream.start()
             self.playing = True
             self.play_button.configure(text="Ⅱ  Szünet")
@@ -304,8 +314,10 @@ class KozikaAudioStudio:
             self.stream = None
             messagebox.showerror("Nem sikerült elindítani", f"Ellenőrizze a hangkimenetet és annak beállításait.\n\n{error}")
 
-    def _audio_callback(self, output: np.ndarray, frames: int, _time, _status) -> None:
+    def _audio_callback(self, output: np.ndarray, frames: int, _time, status) -> None:
         try:
+            if status and status.output_underflow:
+                self._underflow_count += 1
             audio = self._playback_samples
             if self.processor is None:
                 raise RuntimeError("A hangfeldolgozó nem indult el.")
@@ -352,6 +364,12 @@ class KozikaAudioStudio:
     def _watch_playback(self) -> None:
         if self.samples is not None and self.playing:
             self.progress.configure(value=100 * self.play_cursor / max(1, len(self._playback_samples)))
+            if self._underflow_count >= 3:
+                self.status.set(
+                    "A hangkimenet akadozik. A program nagyobb hangpuffert használ; "
+                    "ellenőrizd, hogy a megfelelő hangszóró van-e kiválasztva."
+                )
+                self._underflow_count = 0
         if self._callback_failed.is_set():
             detail = self._callback_error or "Ismeretlen hangfeldolgozási hiba."
             self._callback_failed.clear()
