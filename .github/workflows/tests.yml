@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - fix/stable-audio-and-error5
   pull_request:
 
 jobs:
