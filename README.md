@@ -42,13 +42,16 @@ küldött hangot dolgozza fel.
    Include sorának beállítására szolgál. A jóváhagyás után a csúszkák
    rendszergazdai jogosultság nélkül, azonnal módosíthatók.
 6. A Kozika 10 sávos EQ-, mély-, tisztaság-, magas- és hangerőbeállításai
-   az Equalizer APO saját konfigurációs mappájában lévő külön fájlba kerülnek,
-   amelyet az APO automatikusan újratölt. A térhatás csúszka jelenleg csak a
-   Kozika saját fájllejátszójára vonatkozik.
+   a felhasználói LocalAppData mappában lévő külön fájlba kerülnek,
+   amelyet az APO automatikusan újratölt. Így a csúszkák állítása nem írja
+   a védett Program Files mappát, és nem igényel újabb rendszergazdai jogot.
+   A fájl biztonságosan, egy lépésben frissül. A térhatás csúszka jelenleg
+   csak a Kozika saját fájllejátszójára vonatkozik.
 
 Fontos: az Equalizer APO telepítése és eszközönkénti engedélyezése szükséges.
 A Kozika nem telepít illesztőprogramot, és nem változtatja meg a Windows
-alapértelmezett hangkimenetét. Az egyszeri jóváhagyás csak a Kozika által
+alapértelmezett hangkimenetét. A saját fájllejátszó nagyobb Windows hangpuffert
+használ a lejátszás közbeni hangkimaradások csökkentésére. Az egyszeri jóváhagyás csak a Kozika által
 használt külön szűrőfájlra ad módosítási jogot; a teljes Equalizer APO
 konfigurációs mappa nem válik írhatóvá. A Windows hangjavításainak
 engedélyezve kell maradniuk az adott eszköz tulajdonságainál.

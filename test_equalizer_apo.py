@@ -1,11 +1,13 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from equalizer_apo import (
     APO_FILENAME,
     DISABLED_CONFIG,
-    INCLUDE_LINE,
+    _include_line,
     apply_system_audio,
     build_apo_config,
     disable_system_audio,
@@ -37,27 +39,35 @@ class EqualizerApoTests(unittest.TestCase):
         config = build_apo_config({"volume": 150})
         self.assertIn("Preamp: 0.00 dB", config)
 
-    def test_apply_and_disable_preserve_existing_config(self):
+    def test_live_filter_is_user_owned_and_config_includes_absolute_path(self):
         with tempfile.TemporaryDirectory() as temp:
-            folder = Path(temp)
-            main = folder / "config.txt"
-            main.write_text("Preamp: -2 dB\nInclude: existing.txt\n", encoding="utf-8")
-            generated = apply_system_audio({"eq_1000": 3}, folder)
-            self.assertEqual(generated, folder / APO_FILENAME)
-            self.assertTrue(generated.is_file())
-            text = main.read_text(encoding="utf-8")
-            self.assertIn("Include: existing.txt", text)
-            self.assertIn(INCLUDE_LINE, text)
-            self.assertTrue((folder / "config.txt.kozika-backup").is_file())
+            root = Path(temp)
+            apo_dir = root / "ProgramFiles" / "EqualizerAPO" / "config"
+            local_app_data = root / "LocalAppData"
+            apo_dir.mkdir(parents=True)
+            main = apo_dir / "config.txt"
+            main.write_text(
+                "Preamp: -2 dB\nInclude: existing.txt\n",
+                encoding="utf-8",
+            )
 
-            # Subsequent slider changes update only the Kozika-owned file.
-            main_before = main.read_bytes()
-            apply_system_audio({"bass": 35, "volume": 100}, folder)
-            self.assertEqual(main.read_bytes(), main_before)
+            with patch.dict(os.environ, {"LOCALAPPDATA": str(local_app_data)}):
+                generated = apply_system_audio({"eq_1000": 3}, apo_dir)
+                expected = local_app_data / "KozikaAudioStudio" / "EqualizerAPO" / APO_FILENAME
+                self.assertEqual(generated, expected)
+                self.assertTrue(generated.is_file())
+                text = main.read_text(encoding="utf-8")
+                self.assertIn("Include: existing.txt", text)
+                self.assertIn(_include_line(generated), text)
+                self.assertTrue((apo_dir / "config.txt.kozika-backup").is_file())
 
-            disable_system_audio(folder)
-            self.assertEqual(main.read_bytes(), main_before)
-            self.assertEqual(generated.read_text(encoding="utf-8"), DISABLED_CONFIG)
+                main_before = main.read_bytes()
+                apply_system_audio({"bass": 35, "volume": 100}, apo_dir)
+                self.assertEqual(main.read_bytes(), main_before)
+
+                disable_system_audio(apo_dir)
+                self.assertEqual(main.read_bytes(), main_before)
+                self.assertEqual(generated.read_text(encoding="utf-8"), DISABLED_CONFIG)
 
 
 if __name__ == "__main__":
