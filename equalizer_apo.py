@@ -31,11 +31,8 @@ def find_config_dir() -> Path | None:
     return None
 
 
-def _user_filter_dir(config_dir: Path | None = None) -> Path:
-    # A supplied directory is used by tests; production always writes under
-    # LocalAppData, never into the protected Equalizer APO installation folder.
-    if config_dir is not None:
-        return config_dir
+def _user_filter_dir() -> Path:
+    # Always write in the user's profile, never into protected Program Files.
     base = Path(os.environ.get("LOCALAPPDATA", str(Path.home()) / "AppData" / "Local"))
     return base / "KozikaAudioStudio" / "EqualizerAPO"
 
@@ -105,7 +102,7 @@ def request_admin_install(config_dir: Path | None = None) -> bool:
         return False
 
     main_config = folder / "config.txt"
-    generated = _user_filter_dir(config_dir) / APO_FILENAME
+    generated = _user_filter_dir() / APO_FILENAME
     include_line = _include_line(generated)
 
     def ps_quote(value: str) -> str:
