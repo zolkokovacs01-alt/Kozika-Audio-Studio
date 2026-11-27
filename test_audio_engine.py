@@ -51,6 +51,14 @@ class AudioProcessorTests(unittest.TestCase):
         processed = processor.process(self.samples * 4)
         self.assertLessEqual(float(np.max(np.abs(processed))), 1.0)
 
+    def test_repeated_live_settings_updates_keep_audio_finite(self):
+        processor = AudioProcessor(self.sample_rate)
+        for bass, treble, volume in ((20, 10, 100), (70, 40, 90), (0, 0, 100), (100, 100, 150)):
+            processor.set_settings({"bass": bass, "treble": treble, "volume": volume})
+            processed = processor.process(self.samples)
+            self.assertTrue(np.isfinite(processed).all())
+            self.assertGreater(float(np.max(np.abs(processed))), 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()
