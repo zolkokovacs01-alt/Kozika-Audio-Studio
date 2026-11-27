@@ -1,6 +1,8 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from equalizer_apo import (
     APO_FILENAME,
@@ -41,32 +43,31 @@ class EqualizerApoTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             apo_dir = root / "ProgramFiles" / "EqualizerAPO" / "config"
-            user_dir = root / "LocalAppData" / "KozikaAudioStudio" / "EqualizerAPO"
+            local_app_data = root / "LocalAppData"
             apo_dir.mkdir(parents=True)
-            user_dir.mkdir(parents=True)
             main = apo_dir / "config.txt"
             main.write_text(
                 "Preamp: -2 dB\nInclude: existing.txt\n",
                 encoding="utf-8",
             )
 
-            # In production the user-owned folder is LocalAppData. For this
-            # isolated test, pass that folder as config_dir to the helper.
-            generated = apply_system_audio({"eq_1000": 3}, apo_dir)
-            self.assertEqual(generated, apo_dir / APO_FILENAME)
-            self.assertTrue(generated.is_file())
-            text = main.read_text(encoding="utf-8")
-            self.assertIn("Include: existing.txt", text)
-            self.assertIn(_include_line(generated), text)
-            self.assertTrue((apo_dir / "config.txt.kozika-backup").is_file())
+            with patch.dict(os.environ, {"LOCALAPPDATA": str(local_app_data)}):
+                generated = apply_system_audio({"eq_1000": 3}, apo_dir)
+                expected = local_app_data / "KozikaAudioStudio" / "EqualizerAPO" / APO_FILENAME
+                self.assertEqual(generated, expected)
+                self.assertTrue(generated.is_file())
+                text = main.read_text(encoding="utf-8")
+                self.assertIn("Include: existing.txt", text)
+                self.assertIn(_include_line(generated), text)
+                self.assertTrue((apo_dir / "config.txt.kozika-backup").is_file())
 
-            main_before = main.read_bytes()
-            apply_system_audio({"bass": 35, "volume": 100}, apo_dir)
-            self.assertEqual(main.read_bytes(), main_before)
+                main_before = main.read_bytes()
+                apply_system_audio({"bass": 35, "volume": 100}, apo_dir)
+                self.assertEqual(main.read_bytes(), main_before)
 
-            disable_system_audio(apo_dir)
-            self.assertEqual(main.read_bytes(), main_before)
-            self.assertEqual(generated.read_text(encoding="utf-8"), DISABLED_CONFIG)
+                disable_system_audio(apo_dir)
+                self.assertEqual(main.read_bytes(), main_before)
+                self.assertEqual(generated.read_text(encoding="utf-8"), DISABLED_CONFIG)
 
 
 if __name__ == "__main__":
