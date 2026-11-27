@@ -37,14 +37,20 @@ küldött hangot dolgozza fel.
 3. Fejezd be a telepítést, majd indítsd újra a Windows rendszert.
 4. Indítsd el a Kozika Audio Studio-t, és kattints a
    **Windows teljes hangja** gombra.
-5. A Kozika 10 sávos EQ-, mély-, tisztaság-, magas- és hangerőbeállításai
-   bekerülnek az Equalizer APO konfigurációjába. A térhatás csúszka jelenleg
-   csak a Kozika saját fájllejátszójára vonatkozik.
+5. Első bekapcsoláskor a Windows egyszer rendszergazdai jóváhagyást kér.
+   Ez csak a Kozika saját szűrőfájljának engedélyezésére és a config.txt
+   Include sorának beállítására szolgál. A jóváhagyás után a csúszkák
+   rendszergazdai jogosultság nélkül, azonnal módosíthatók.
+6. A Kozika 10 sávos EQ-, mély-, tisztaság-, magas- és hangerőbeállításai
+   az Equalizer APO saját konfigurációs mappájában lévő külön fájlba kerülnek,
+   amelyet az APO automatikusan újratölt. A térhatás csúszka jelenleg csak a
+   Kozika saját fájllejátszójára vonatkozik.
 
 Fontos: az Equalizer APO telepítése és eszközönkénti engedélyezése szükséges.
 A Kozika nem telepít illesztőprogramot, és nem változtatja meg a Windows
-alapértelmezett hangkimenetét. Ha a konfigurációs mappa írásvédett, a
-Windows rendszergazdai jogosultságot kérhet. A Windows hangjavításainak
+alapértelmezett hangkimenetét. Az egyszeri jóváhagyás csak a Kozika által
+használt külön szűrőfájlra ad módosítási jogot; a teljes Equalizer APO
+konfigurációs mappa nem válik írhatóvá. A Windows hangjavításainak
 engedélyezve kell maradniuk az adott eszköz tulajdonságainál.
 
 ## Ellenőrzés
