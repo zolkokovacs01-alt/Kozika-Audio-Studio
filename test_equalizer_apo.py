@@ -33,6 +33,10 @@ class EqualizerApoTests(unittest.TestCase):
         config = build_apo_config(settings)
         self.assertIn("Preamp: -18.00 dB", config)
 
+    def test_system_preamp_never_adds_unlimited_gain(self):
+        config = build_apo_config({"volume": 150})
+        self.assertIn("Preamp: 0.00 dB", config)
+
     def test_apply_and_disable_preserve_existing_config(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp)
