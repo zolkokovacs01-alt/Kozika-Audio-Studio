@@ -22,6 +22,10 @@ APO_DIRS = (
 )
 APO_FILENAME = "KozikaAudioStudio.txt"
 DISABLED_CONFIG = "# Kozika Audio Studio - processing disabled\nPreamp: 0 dB\n"
+OLD_INCLUDE_PATTERN = re.compile(
+    r'^\s*Include:\s*"?KozikaAudioStudio\.txt"?\s*$',
+    flags=re.IGNORECASE,
+)
 
 
 def find_config_dir() -> Path | None:
@@ -32,8 +36,7 @@ def find_config_dir() -> Path | None:
 
 
 def _user_filter_dir() -> Path:
-    # Always write in the user's profile, never into protected Program Files.
-    base = Path(os.environ.get("LOCALAPPDATA", str(Path.home()) / "AppData" / "Local"))
+    base = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
     return base / "KozikaAudioStudio" / "EqualizerAPO"
 
 
@@ -42,7 +45,6 @@ def _include_line(filter_path: Path) -> str:
 
 
 def build_apo_config(settings: Mapping[str, float]) -> str:
-    """Convert Kozika controls into Equalizer APO filters with safe headroom."""
     frequencies = (31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000)
     eq = [float(settings.get(f"eq_{f}", 0.0)) for f in frequencies]
     bass = float(settings.get("bass", 0.0)) * 0.12
@@ -166,37 +168,18 @@ def apply_system_audio(
     if not main_config.is_file():
         raise FileNotFoundError(f"Nem található: {main_config}")
 
-    generated = _user_filter_dir(config_dir) / APO_FILENAME
+    generated = _user_filter_dir() / APO_FILENAME
     include_line = _include_line(generated)
     main_text = main_config.read_text(encoding="utf-8-sig")
     if include_line.casefold() not in main_text.casefold():
-        # This is the only protected-file operation. It is intentionally done
-        # before creating the live filter so a failed permission check is clear.
+        # Keep every existing Equalizer APO Include; remove only the old Kozika
+        # relative Include if this is an upgrade from the previous release.
         lines = [
             line for line in main_text.splitlines()
-            if not re.match(r'^\s*Include:\s*"?KozikaAudioStudio\.txt"?\s*        ]
-        if include_line.casefold() not in [line.strip().casefold() for line in lines]:
-            lines.append(include_line)
-        backup = folder / "config.txt.kozika-backup"
-        if not backup.exists():
-            shutil.copy2(main_config, backup)
-        _atomic_write(main_config, "\n".join(lines).rstrip() + "\n")
-
-    _atomic_write(generated, build_apo_config(settings))
-    return generated
-
-
-def disable_system_audio(config_dir: Path | None = None) -> None:
-    """Disable only Kozika filters without editing protected config.txt."""
-    generated = _user_filter_dir(config_dir) / APO_FILENAME
-    if generated.exists():
-        _atomic_write(generated, DISABLED_CONFIG)
-,
-                            line, flags=re.IGNORECASE)
+            if not OLD_INCLUDE_PATTERN.match(line)
             and line.strip().casefold() != include_line.casefold()
         ]
-        if include_line.casefold() not in [line.strip().casefold() for line in lines]:
-            lines.append(include_line)
+        lines.append(include_line)
         backup = folder / "config.txt.kozika-backup"
         if not backup.exists():
             shutil.copy2(main_config, backup)
@@ -208,6 +191,6 @@ def disable_system_audio(config_dir: Path | None = None) -> None:
 
 def disable_system_audio(config_dir: Path | None = None) -> None:
     """Disable only Kozika filters without editing protected config.txt."""
-    generated = _user_filter_dir(config_dir) / APO_FILENAME
+    generated = _user_filter_dir() / APO_FILENAME
     if generated.exists():
         _atomic_write(generated, DISABLED_CONFIG)
